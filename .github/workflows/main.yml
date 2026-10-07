@@ -23,39 +23,39 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Locate Android SDK
+      - name: Install Android Command Line Tools
         shell: bash
         run: |
           set -euo pipefail
 
-          SDKMANAGER="$(find /usr/local/lib/android/sdk /opt/android-sdk /usr/lib/android-sdk \
-            -type f \
-            -path '*/cmdline-tools/*/bin/sdkmanager' \
-            2>/dev/null | head -n 1)"
+          SDK_ROOT="$RUNNER_TEMP/android-sdk"
 
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager was not found"
-            find /usr/local/lib/android /opt/android-sdk /usr/lib/android-sdk \
-              -type f -name sdkmanager 2>/dev/null || true
-            exit 1
-          fi
+          rm -rf "$SDK_ROOT"
+          mkdir -p "$SDK_ROOT/cmdline-tools"
 
-          SDK_BIN="$(dirname "$SDKMANAGER")"
-          SDK_ROOT="$(dirname "$(dirname "$(dirname "$SDK_BIN")")")"
+          cd "$RUNNER_TEMP"
 
-          echo "SDKMANAGER=$SDKMANAGER"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT"
+          curl -fL \
+            -o android-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip
+
+          unzip -q android-tools.zip -d "$SDK_ROOT/cmdline-tools"
+
+          mv "$SDK_ROOT/cmdline-tools/cmdline-tools" \
+             "$SDK_ROOT/cmdline-tools/latest"
 
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-          echo "$SDK_BIN" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
           export ANDROID_SDK_ROOT="$SDK_ROOT"
           export ANDROID_HOME="$SDK_ROOT"
-          export PATH="$SDK_BIN:$SDK_ROOT/platform-tools:$PATH"
+          export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$SDK_ROOT/platform-tools:$PATH"
 
+          echo "Checking sdkmanager..."
+          command -v sdkmanager
           sdkmanager --version
 
           yes | sdkmanager --licenses >/dev/null || true
@@ -72,14 +72,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -fsSL -o "$RUNNER_TEMP/gradle.zip" \
+          curl -fL \
+            -o "$RUNNER_TEMP/gradle.zip" \
             https://services.gradle.org/distributions/gradle-8.9-bin.zip
 
-          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/gradle.zip" \
+            -d "$RUNNER_TEMP"
 
           echo "$RUNNER_TEMP/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-      - name: Find and extract TWINS SOFT project
+      - name: Extract TWINS SOFT project
         shell: bash
         run: |
           set -euo pipefail
@@ -87,31 +89,35 @@ jobs:
           ZIP_FILE="$(find . -maxdepth 3 -type f -iname '*.zip' -print -quit)"
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: TWINS SOFT ZIP file was not found"
+            echo "ERROR: ZIP project not found"
             exit 1
           fi
 
-          echo "Found ZIP: $ZIP_FILE"
+          echo "Found: $ZIP_FILE"
 
           rm -rf extracted
           mkdir -p extracted
 
           unzip -q "$ZIP_FILE" -d extracted
 
-          PROJECT_DIR="$(find extracted \
-            -type f \
+          PROJECT_DIR="$(
+            find extracted -type f \
             \( -name 'settings.gradle' -o -name 'settings.gradle.kts' \) \
-            -print -quit | xargs -r dirname)"
+            -print -quit |
+            xargs -r dirname
+          )"
 
           if [ -z "$PROJECT_DIR" ]; then
-            PROJECT_DIR="$(find extracted \
-              -type f \
+            PROJECT_DIR="$(
+              find extracted -type f \
               \( -name 'build.gradle' -o -name 'build.gradle.kts' \) \
-              -print -quit | xargs -r dirname)"
+              -print -quit |
+              xargs -r dirname
+            )"
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project was not found"
+            echo "ERROR: Gradle Android project not found"
             find extracted -maxdepth 5 -type f | sort
             exit 1
           fi
@@ -119,7 +125,7 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Build TWINS SOFT APK
+      - name: Build TWINS SOFT
         shell: bash
         run: |
           set -euo pipefail
@@ -135,20 +141,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK="$(find "$PROJECT_DIR" \
+          APK="$(
+            find "$PROJECT_DIR" \
             -type f \
             -path '*/build/outputs/apk/debug/*.apk' \
-            -print -quit)"
+            -print -quit
+          )"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK was not created"
+            echo "ERROR: APK not found"
             exit 1
           fi
 
           echo "APK=$APK"
           echo "APK=$APK" >> "$GITHUB_ENV"
 
-      - name: Upload TWINS SOFT APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TWINS-SOFT-APK
